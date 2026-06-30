@@ -5,3 +5,15 @@ __pycache__/
 
 # macOS
 .DS_Store
+Yapleer-token/
+
+# Local Yandex token helper
+Yapleer-token/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
