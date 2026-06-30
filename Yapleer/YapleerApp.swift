@@ -6,12 +6,23 @@
 //
 
 import SwiftUI
+import AppKit
 
 @main
 struct YapleerApp: App {
+    @StateObject private var player = PlayerService()
+
+    init() {
+        NSApplication.shared.setActivationPolicy(.accessory)
+    }
+
     var body: some Scene {
-        WindowGroup {
+        MenuBarExtra {
             ContentView()
+                .environmentObject(player)
+        } label: {
+            Image(systemName: player.isPlaying ? "flame.fill" : "flame")
         }
+        .menuBarExtraStyle(.window)
     }
 }
