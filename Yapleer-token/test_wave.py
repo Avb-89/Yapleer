@@ -1,6 +1,6 @@
 from yandex_music import Client
 
-TOKEN = "y0__wgBELfYjxIY3vgGINyr1IYYYYqQbjpHb__DbxoBFDpPZhATEnk"
+TOKEN = "Your Token"
 
 client = Client(TOKEN).init()
 
