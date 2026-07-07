@@ -11,6 +11,7 @@ import AppKit
 @main
 struct YapleerApp: App {
     @StateObject private var player = PlayerService()
+    @StateObject private var authState = AuthState()
 
     init() {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -18,8 +19,9 @@ struct YapleerApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            ContentView()
+            RootView()
                 .environmentObject(player)
+                .environmentObject(authState)
         } label: {
             Image(systemName: player.isPlaying ? "flame.fill" : "flame")
         }

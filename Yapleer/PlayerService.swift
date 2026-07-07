@@ -15,10 +15,37 @@ final class PlayerService: ObservableObject {
     @Published var trackTitle = "Тестовый трек"
     @Published var trackArtist = "Yapleer"
 
+    private struct CachedTrack {
+        let title: String
+        let artist: String
+        let fileURL: URL
+    }
+
     private var player: AVPlayer?
     private var loadedYandexTrack = false
-    private var tempAudioURL: URL?
+    private var trackCache: [CachedTrack] = []
+    private var currentCacheIndex: Int?
     private var endObserver: NSObjectProtocol?
+
+    private let maxCachedTracks = 6
+    private let previousRestartThresholdSeconds: Double = 5
+
+    deinit {
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+        }
+
+        let cachedFileURLs = trackCache.map(\.fileURL)
+        cachedFileURLs.forEach { fileURL in
+            do {
+                try FileManager.default.removeItem(at: fileURL)
+            } catch CocoaError.fileNoSuchFile {
+                return
+            } catch {
+                print("Yapleer temp mp3 delete failed:", error)
+            }
+        }
+    }
 
     init() {
         setupTestTrack()
@@ -95,13 +122,13 @@ final class PlayerService: ObservableObject {
     }
 
     func previous(yandexToken: String) async {
-        if yandexToken.isEmpty {
-            previous()
+        if shouldRestartCurrentTrackOnPreviousPress() {
+            restartCurrentTrack()
             return
         }
 
-        let loaded = await loadNextYandexTrack(token: yandexToken)
-        guard loaded else {
+        guard playCachedTrack(offset: -1) else {
+            restartCurrentTrack()
             return
         }
 
@@ -130,7 +157,15 @@ final class PlayerService: ObservableObject {
     }
 
     private func playNextAfterCurrentTrackEnded() async {
-        let token = UserDefaults.standard.string(forKey: "yandexMusicToken") ?? ""
+        let token: String
+
+        do {
+            token = try KeychainService.shared.readYandexToken() ?? ""
+        } catch {
+            print("PlayerService read token failed:", error)
+            restartCurrentTrack()
+            return
+        }
 
         if token.isEmpty {
             restartCurrentTrack()
@@ -152,18 +187,73 @@ final class PlayerService: ObservableObject {
         do {
             let track = try await YandexMusicClient(token: token).fetchMyWaveTrack()
             let localURL = try await downloadAudioFile(from: track.directURL)
-            player?.pause()
-            player = AVPlayer(url: localURL)
-            observeCurrentTrackEnd()
-            trackTitle = track.title
-            trackArtist = track.artist
-            loadedYandexTrack = true
-            updateNowPlaying(isPlaying: false)
+            let cachedTrack = CachedTrack(
+                title: track.title,
+                artist: track.artist,
+                fileURL: localURL
+            )
+
+            appendCachedTrack(cachedTrack)
+            playCachedTrack(at: trackCache.count - 1)
             return true
         } catch {
             print("Yandex Wave track load failed:", error)
             return false
         }
+    }
+
+    private func appendCachedTrack(_ cachedTrack: CachedTrack) {
+        if let currentCacheIndex, currentCacheIndex < trackCache.count - 1 {
+            let removedForwardTracks = trackCache[(currentCacheIndex + 1)...]
+            removedForwardTracks.forEach { deleteTempAudioFile($0.fileURL) }
+            trackCache.removeSubrange((currentCacheIndex + 1)..<trackCache.count)
+        }
+
+        trackCache.append(cachedTrack)
+
+        while trackCache.count > maxCachedTracks {
+            let removedTrack = trackCache.removeFirst()
+            deleteTempAudioFile(removedTrack.fileURL)
+
+            if let currentCacheIndex {
+                self.currentCacheIndex = max(currentCacheIndex - 1, 0)
+            }
+        }
+    }
+
+    @discardableResult
+    private func playCachedTrack(offset: Int) -> Bool {
+        guard let currentCacheIndex else {
+            return false
+        }
+
+        return playCachedTrack(at: currentCacheIndex + offset)
+    }
+
+    @discardableResult
+    private func playCachedTrack(at index: Int) -> Bool {
+        guard trackCache.indices.contains(index) else {
+            return false
+        }
+
+        let cachedTrack = trackCache[index]
+        player?.pause()
+        player = AVPlayer(url: cachedTrack.fileURL)
+        currentCacheIndex = index
+        trackTitle = cachedTrack.title
+        trackArtist = cachedTrack.artist
+        loadedYandexTrack = true
+        observeCurrentTrackEnd()
+        updateNowPlaying(isPlaying: false)
+        return true
+    }
+
+    private func shouldRestartCurrentTrackOnPreviousPress() -> Bool {
+        guard let player else {
+            return false
+        }
+
+        return player.currentTime().seconds > previousRestartThresholdSeconds
     }
 
     private func downloadAudioFile(from url: URL) async throws -> URL {
@@ -188,10 +278,27 @@ final class PlayerService: ObservableObject {
             .appendingPathExtension("mp3")
 
         try data.write(to: fileURL, options: .atomic)
-        print("Yandex mp3 downloaded bytes:", data.count)
-        print("Yandex mp3 local file:", fileURL.path)
-        tempAudioURL = fileURL
         return fileURL
+    }
+
+    private func deleteTempAudioFile(_ fileURL: URL?) {
+        guard let fileURL else {
+            return
+        }
+
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+        } catch CocoaError.fileNoSuchFile {
+            return
+        } catch {
+            print("Yapleer temp mp3 delete failed:", error)
+        }
+    }
+
+    private func deleteAllCachedTracks() {
+        trackCache.forEach { deleteTempAudioFile($0.fileURL) }
+        trackCache.removeAll()
+        currentCacheIndex = nil
     }
 
     private func updateNowPlaying(isPlaying: Bool) {

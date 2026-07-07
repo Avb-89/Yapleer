@@ -14,7 +14,12 @@ final class RemoteCommandService {
     private init() {}
 
     private func yandexToken() -> String {
-        UserDefaults.standard.string(forKey: "yandexMusicToken") ?? ""
+        do {
+            return try KeychainService.shared.readYandexToken() ?? ""
+        } catch {
+            print("RemoteCommandService read token failed:", error)
+            return ""
+        }
     }
 
     func configure(playerService: PlayerService) {

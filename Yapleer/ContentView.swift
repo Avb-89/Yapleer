@@ -10,8 +10,9 @@ import AppKit
 
 struct ContentView: View {
     @EnvironmentObject private var player: PlayerService
-    @AppStorage("yandexMusicToken") private var yandexMusicToken = ""
-    @State private var yandexStatus = "Яндекс не подключен"
+    @EnvironmentObject private var authState: AuthState
+    @State private var manualToken = ""
+    @State private var yandexStatus = "Яндекс подключен"
     @State private var isCheckingYandex = false
     @State private var showYandexSettings = false
 
@@ -58,20 +59,20 @@ struct ContentView: View {
 
             Divider()
 
-            if showYandexSettings || yandexMusicToken.isEmpty {
+            if showYandexSettings {
                 VStack(alignment: .leading, spacing: 8) {
-                    SecureField("OAuth-токен Яндекс Музыки", text: $yandexMusicToken)
+                    SecureField("OAuth-токен Яндекс Музыки", text: $manualToken)
                         .textFieldStyle(.roundedBorder)
 
                     HStack {
                         Button {
                             Task {
-                                await checkYandexConnection()
+                                await saveManualToken()
                             }
                         } label: {
-                            Text(isCheckingYandex ? "Проверяем..." : "Проверить Яндекс")
+                            Text(isCheckingYandex ? "Проверяем..." : "Сохранить токен")
                         }
-                        .disabled(yandexMusicToken.isEmpty || isCheckingYandex)
+                        .disabled(manualToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isCheckingYandex)
 
                         Spacer()
 
@@ -87,7 +88,7 @@ struct ContentView: View {
             HStack(spacing: 24) {
                 Button {
                     Task {
-                        await player.previous(yandexToken: yandexMusicToken)
+                        await player.previous(yandexToken: authState.yandexToken)
                     }
                 } label: {
                     Image(systemName: "backward.fill")
@@ -95,7 +96,7 @@ struct ContentView: View {
 
                 Button {
                     Task {
-                        await player.togglePlayPause(yandexToken: yandexMusicToken)
+                        await player.togglePlayPause(yandexToken: authState.yandexToken)
                     }
                 } label: {
                     Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
@@ -105,7 +106,7 @@ struct ContentView: View {
 
                 Button {
                     Task {
-                        await player.next(yandexToken: yandexMusicToken)
+                        await player.next(yandexToken: authState.yandexToken)
                     }
                 } label: {
                     Image(systemName: "forward.fill")
@@ -118,16 +119,23 @@ struct ContentView: View {
     }
 
     @MainActor
-    private func checkYandexConnection() async {
+    private func saveManualToken() async {
         isCheckingYandex = true
         defer { isCheckingYandex = false }
 
-        do {
-            let status = try await YandexMusicClient(token: yandexMusicToken).fetchAccountStatus()
-            yandexStatus = "OK: \(status.displayName ?? status.login ?? "аккаунт найден")"
-        } catch {
+        await authState.saveTokenAndLogin(manualToken)
+
+        switch authState.status {
+        case .authenticated:
+            yandexStatus = "OK: \(authState.accountTitle)"
+            manualToken = ""
+            withAnimation(.snappy) {
+                showYandexSettings = false
+            }
+        case .failed(let message):
+            yandexStatus = message
+        default:
             yandexStatus = "Ошибка подключения"
-            print("Yandex Music auth check failed:", error)
         }
     }
 }
@@ -135,4 +143,5 @@ struct ContentView: View {
 #Preview {
     ContentView()
         .environmentObject(PlayerService())
+        .environmentObject(AuthState())
 }
