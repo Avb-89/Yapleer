@@ -11,10 +11,7 @@ import AppKit
 struct ContentView: View {
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var authState: AuthState
-    @State private var manualToken = ""
-    @State private var yandexStatus = "Яндекс подключен"
-    @State private var isCheckingYandex = false
-    @State private var showYandexSettings = false
+    @State private var isSavingTrack = false
 
     var body: some View {
         VStack(spacing: 14) {
@@ -37,15 +34,13 @@ struct ContentView: View {
                 Spacer()
 
                 Button {
-                    withAnimation(.snappy) {
-                        showYandexSettings.toggle()
-                    }
+                    authState.logout()
                 } label: {
                     Image(systemName: "door.left.hand.open")
-                        .foregroundStyle(showYandexSettings ? .primary : .secondary)
+                        .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Настройки Яндекса")
+                .help("Войти заново")
 
                 Button {
                     NSApplication.shared.terminate(nil)
@@ -58,32 +53,6 @@ struct ContentView: View {
             }
 
             Divider()
-
-            if showYandexSettings {
-                VStack(alignment: .leading, spacing: 8) {
-                    SecureField("OAuth-токен Яндекс Музыки", text: $manualToken)
-                        .textFieldStyle(.roundedBorder)
-
-                    HStack {
-                        Button {
-                            Task {
-                                await saveManualToken()
-                            }
-                        } label: {
-                            Text(isCheckingYandex ? "Проверяем..." : "Сохранить токен")
-                        }
-                        .disabled(manualToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isCheckingYandex)
-
-                        Spacer()
-
-                        Text(yandexStatus)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
 
             HStack(spacing: 24) {
                 Button {
@@ -111,6 +80,16 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "forward.fill")
                 }
+
+                Button {
+                    Task {
+                        await saveCurrentTrack()
+                    }
+                } label: {
+                    Image(systemName: isSavingTrack ? "checkmark" : "square.and.arrow.down")
+                        .foregroundStyle(.secondary)
+                }
+                .help("Сохранить текущий трек")
             }
             .buttonStyle(.plain)
         }
@@ -119,24 +98,16 @@ struct ContentView: View {
     }
 
     @MainActor
-    private func saveManualToken() async {
-        isCheckingYandex = true
-        defer { isCheckingYandex = false }
-
-        await authState.saveTokenAndLogin(manualToken)
-
-        switch authState.status {
-        case .authenticated:
-            yandexStatus = "OK: \(authState.accountTitle)"
-            manualToken = ""
-            withAnimation(.snappy) {
-                showYandexSettings = false
+    private func saveCurrentTrack() async {
+        isSavingTrack = true
+        defer {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                isSavingTrack = false
             }
-        case .failed(let message):
-            yandexStatus = message
-        default:
-            yandexStatus = "Ошибка подключения"
         }
+
+        await player.saveCurrentTrack()
     }
 }
 

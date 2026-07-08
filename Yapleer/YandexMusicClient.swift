@@ -17,7 +17,6 @@ struct YandexTrackInfo {
     let title: String
     let artist: String
     let directURL: URL
-    let token: String
 }
 
 final class YandexMusicClient {
@@ -35,7 +34,7 @@ final class YandexMusicClient {
         request.httpMethod = "GET"
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        try validateHTTPResponse(response, data: data, operation: "Yandex account status")
+        try validateHTTPResponse(response)
 
         let jsonObject = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         let result = jsonObject?["result"] as? [String: Any]
@@ -72,17 +71,12 @@ final class YandexMusicClient {
         let artistsJSON = trackJSON["artists"] as? [[String: Any]] ?? []
         let artist = artistsJSON.compactMap { $0["name"] as? String }.joined(separator: ", ")
 
-        print("Yandex selected queue index:", Self.waveQueueIndex - 1)
-        print("Yandex selected trackId:", trackId)
-        print("Yandex selected title:", title)
-
         let directURL = try await fetchDirectURL(trackId: trackId)
 
         return YandexTrackInfo(
             title: title,
             artist: artist.isEmpty ? "Yandex Music" : artist,
-            directURL: directURL,
-            token: token
+            directURL: directURL
         )
     }
 
@@ -92,19 +86,11 @@ final class YandexMusicClient {
         stationRequest.httpMethod = "GET"
 
         let (stationData, stationResponse) = try await URLSession.shared.data(for: stationRequest)
-        try validateHTTPResponse(stationResponse, data: stationData, operation: "Yandex Wave tracks")
+        try validateHTTPResponse(stationResponse)
 
         let stationJSON = try JSONSerialization.jsonObject(with: stationData) as? [String: Any]
         let result = stationJSON?["result"] as? [String: Any]
         let sequence = result?["sequence"] as? [[String: Any]] ?? []
-
-        print("Yandex Wave sequence count:", sequence.count)
-        for (index, item) in sequence.enumerated() {
-            let track = item["track"] as? [String: Any]
-            let trackId = stringify(track?["id"]) ?? "nil"
-            let title = track?["title"] as? String ?? "Без названия"
-            print("Yandex Wave queue item #\(index): \(trackId) — \(title)")
-        }
 
         guard !sequence.isEmpty else {
             throw URLError(.cannotParseResponse)
@@ -119,8 +105,7 @@ final class YandexMusicClient {
         downloadInfoRequest.httpMethod = "GET"
 
         let (downloadInfoData, downloadInfoResponse) = try await URLSession.shared.data(for: downloadInfoRequest)
-        print("Yandex download-info trackId:", trackId)
-        try validateHTTPResponse(downloadInfoResponse, data: downloadInfoData, operation: "Yandex download-info")
+        try validateHTTPResponse(downloadInfoResponse)
 
         let downloadInfoObject = try JSONSerialization.jsonObject(with: downloadInfoData)
         let downloadInfoList: [[String: Any]]
@@ -131,19 +116,7 @@ final class YandexMusicClient {
                   let result = object["result"] as? [[String: Any]] {
             downloadInfoList = result
         } else {
-            let body = String(data: downloadInfoData, encoding: .utf8) ?? ""
-            print("Yandex download-info unexpected JSON:", body)
             throw URLError(.cannotParseResponse)
-        }
-
-        print("Yandex download-info variants count:", downloadInfoList.count)
-        for item in downloadInfoList {
-            let codec = item["codec"] as? String ?? "nil"
-            let bitrate = item["bitrateInKbps"] as? Int ?? item["bitrate_in_kbps"] as? Int ?? 0
-            let gain = item["gain"] as? Bool ?? false
-            let preview = item["preview"] as? Bool ?? false
-            let infoURLString = item["downloadInfoUrl"] as? String ?? item["download_info_url"] as? String ?? "nil"
-            print("Yandex download-info variant codec=\(codec) bitrate=\(bitrate) gain=\(gain) preview=\(preview) url=\(infoURLString)")
         }
 
         let best = downloadInfoList
@@ -166,23 +139,14 @@ final class YandexMusicClient {
         infoRequest.setValue("Yapleer/0.1", forHTTPHeaderField: "User-Agent")
 
         let (xmlData, xmlResponse) = try await URLSession.shared.data(for: infoRequest)
-        try validateHTTPResponse(xmlResponse, data: xmlData, operation: "Yandex direct-link xml")
-
-        let xmlRaw = String(data: xmlData, encoding: .utf8) ?? ""
-        print("Yandex direct-link xml:", xmlRaw)
+        try validateHTTPResponse(xmlResponse)
 
         let xml = try YandexDownloadXML.parse(data: xmlData)
-        print("Yandex parsed host:", xml.host)
-        print("Yandex parsed path:", xml.path)
-        print("Yandex parsed ts:", xml.ts)
-        print("Yandex parsed s:", xml.s)
 
         let sign = md5Hex("XGRlBW9FXlekgbPrRHuSiA" + String(xml.path.dropFirst()) + xml.s)
-        print("Yandex calculated sign:", sign)
 
         let normalizedPath = xml.path.hasPrefix("/") ? xml.path : "/\(xml.path)"
         let directURLString = "https://\(xml.host)/get-mp3/\(sign)/\(xml.ts)\(normalizedPath)"
-        print("Yandex direct URL:", directURLString)
 
         guard let directURL = URL(string: directURLString) else {
             throw URLError(.badURL)
@@ -198,15 +162,12 @@ final class YandexMusicClient {
         return request
     }
 
-    private func validateHTTPResponse(_ response: URLResponse, data: Data, operation: String) throws {
+    private func validateHTTPResponse(_ response: URLResponse) throws {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw URLError(.badServerResponse)
         }
 
         guard (200..<300).contains(httpResponse.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? ""
-            print("\(operation) status code:", httpResponse.statusCode)
-            print("\(operation) response:", body)
             throw URLError(.badServerResponse)
         }
     }

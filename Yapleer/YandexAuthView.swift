@@ -135,7 +135,6 @@ struct YandexAuthView: View {
         } catch {
             authStatus = "Не удалось войти"
             deviceCode = nil
-            print("Yandex auth failed:", error)
         }
     }
 }

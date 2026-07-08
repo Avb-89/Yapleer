@@ -14,12 +14,7 @@ final class RemoteCommandService {
     private init() {}
 
     private func yandexToken() -> String {
-        do {
-            return try KeychainService.shared.readYandexToken() ?? ""
-        } catch {
-            print("RemoteCommandService read token failed:", error)
-            return ""
-        }
+        (try? KeychainService.shared.readYandexToken()) ?? ""
     }
 
     func configure(playerService: PlayerService) {

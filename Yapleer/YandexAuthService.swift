@@ -103,7 +103,6 @@ final class YandexAuthService {
             return YandexTokenResponse(accessToken: accessToken)
         }
 
-        print("Yandex token poll response:", response)
         throw parseOAuthError(from: response) ?? YandexAuthServiceError.invalidResponse
     }
 
