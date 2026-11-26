@@ -36,7 +36,10 @@ final class PlayerService: ObservableObject {
             NotificationCenter.default.removeObserver(endObserver)
         }
 
-        trackCache.forEach { TrackFileStore.shared.deleteCachedTrack($0.fileURL) }
+        let cachedURLs = trackCache.map(\.fileURL)
+        for url in cachedURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     init() {
@@ -178,7 +181,8 @@ final class PlayerService: ObservableObject {
 
     private func restartCurrentTrack() {
         player?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-            Task { @MainActor in
+            guard let self else { return }
+            Task { @MainActor [weak self] in
                 self?.play()
             }
         }
